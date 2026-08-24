@@ -192,9 +192,8 @@ paths:
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/Problem'              
+                $ref: '#/components/schemas/Problem'
 
-            
 components:
   schemas:
     Product:
@@ -364,5 +363,3 @@ components:
           nullable: true
           description: Opaque cursor for the next page. Null means there are no more pages.
           example: eyJpZCI6InByb2R1Y3RfMTIzIn0
-
-    

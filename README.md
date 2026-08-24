@@ -1,103 +1,249 @@
-# nestjs
+# Marketplace API
 
-## Getting started
+Учебный REST API маркетплейса на Express с контрактом OpenAPI 3.0. API позволяет
+получать каталог товаров и создавать, просматривать и листать заказы.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+Входящие запросы и исходящие ответы проверяются по OpenAPI-схеме с помощью
+`express-openapi-validator`. Ошибки возвращаются в формате
+`application/problem+json`.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## Возможности
 
-## Add your files
+- cursor-пагинация товаров и заказов;
+- создание заказа с расчётом стоимости каждой позиции и общей суммы;
+- защита от повторного создания заказа через `Idempotency-Key`;
+- валидация request и response по OpenAPI;
+- единый формат ошибок Problem Details;
+- форматирование проекта через Prettier;
+- проверка OpenAPI-контракта через Redocly CLI.
 
-- [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-- [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## Требования
 
+- Node.js 20.19 или новее;
+- pnpm 9 или новее.
+
+## Установка и запуск
+
+```bash
+pnpm install
+pnpm start
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/sergeybabaev063/nestjs.git
-git branch -M main
-git push -uf origin main
+
+API будет доступен по адресу `http://localhost:3000`.
+
+Для запуска с автоматической перезагрузкой при изменении файлов:
+
+```bash
+pnpm dev
 ```
 
-## Integrate with your tools
+## Команды
 
-- [Set up project integrations](https://gitlab.com/sergeybabaev063/nestjs/-/settings/integrations)
+| Команда               | Назначение                                    |
+| --------------------- | --------------------------------------------- |
+| `pnpm start`          | Запустить API                                 |
+| `pnpm dev`            | Запустить API в watch-режиме                  |
+| `pnpm lint:openapi`   | Проверить OpenAPI-контракт                    |
+| `pnpm bundle:openapi` | Собрать контракт в `spec.json`                |
+| `pnpm format`         | Отформатировать файлы через Prettier          |
+| `pnpm format:check`   | Проверить форматирование без изменения файлов |
 
-## Collaborate with your team
+## API
 
-- [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-- [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-- [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-- [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-- [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+### Получить товары
 
-## Test and Deploy
+```http
+GET /products?limit=2
+```
 
-Use the built-in continuous integration in GitLab.
+Query-параметры:
 
-- [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-- [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-- [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-- [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-- [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+| Параметр | Описание                                         |
+| -------- | ------------------------------------------------ |
+| `limit`  | Размер страницы от 1 до 100. По умолчанию — 20   |
+| `cursor` | Cursor из поля `next_cursor` предыдущей страницы |
 
----
+Пример:
 
-# Editing this README
+```bash
+curl 'http://localhost:3000/products?limit=2'
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```json
+{
+  "items": [
+    {
+      "id": "product_1",
+      "name": "Mechanical Keyboard",
+      "description": "RGB mechanical keyboard",
+      "price_cents": 19999,
+      "available": true
+    },
+    {
+      "id": "product_2",
+      "name": "Automative Keyboard",
+      "description": "RGB automative keyboard",
+      "price_cents": 29999,
+      "available": true
+    }
+  ],
+  "next_cursor": "cHJvZHVjdF8y"
+}
+```
 
-## Suggestions for a good README
+Чтобы получить следующую страницу, передайте полученный cursor без изменения:
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```bash
+curl 'http://localhost:3000/products?limit=2&cursor=cHJvZHVjdF8y'
+```
 
-## Name
+Когда данные закончатся, `next_cursor` будет равен `null`. Неизвестный cursor
+возвращает статус `400`.
 
-Choose a self-explaining name for your project.
+### Создать заказ
 
-## Description
+```http
+POST /orders
+Content-Type: application/json
+Idempotency-Key: <уникальный ключ>
+```
 
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+Пример:
 
-## Badges
+```bash
+curl --request POST 'http://localhost:3000/orders' \
+  --header 'Content-Type: application/json' \
+  --header 'Idempotency-Key: checkout-123' \
+  --data '{
+    "items": [
+      { "product_id": "product_1", "quantity": 2 },
+      { "product_id": "product_2", "quantity": 1 }
+    ]
+  }'
+```
 
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Успешный ответ имеет статус `201`:
 
-## Visuals
+```json
+{
+  "id": "order_1",
+  "items": [
+    {
+      "product_id": "product_1",
+      "quantity": 2,
+      "unit_price_cents": 19999,
+      "line_total_cents": 39998
+    },
+    {
+      "product_id": "product_2",
+      "quantity": 1,
+      "unit_price_cents": 29999,
+      "line_total_cents": 29999
+    }
+  ],
+  "total_cents": 69997,
+  "status": "created",
+  "created_at": "2026-08-24T12:00:00.000Z"
+}
+```
 
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Повторный запрос с тем же `Idempotency-Key` и тем же телом возвращает сохранённый
+заказ и заголовок `Idempotency-Replay: true`. Если использовать этот ключ с другим
+телом, API вернёт статус `422`.
 
-## Installation
+Если в заказе указан неизвестный `product_id`, API вернёт статус `400`.
 
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+### Получить список заказов
 
-## Usage
+```http
+GET /orders?limit=20&cursor=<cursor>
+```
 
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+Пагинация работает так же, как для `/products`: cursor следующей страницы приходит
+в `next_cursor`, а последняя страница содержит `"next_cursor": null`.
 
-## Support
+```bash
+curl 'http://localhost:3000/orders?limit=2'
+```
 
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+### Получить заказ по ID
 
-## Roadmap
+```http
+GET /orders/{orderId}
+```
 
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+```bash
+curl 'http://localhost:3000/orders/order_1'
+```
 
-## Contributing
+Если заказ не найден, API возвращает статус `404`.
 
-State if you are open to contributions and what your requirements are for accepting them.
+## Формат ошибок
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+Ошибки приложения и ошибки OpenAPI-валидации возвращаются с Content-Type
+`application/problem+json`:
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```json
+{
+  "type": "https://marketplace.dev/problems/request-error",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Unknown cursor",
+  "instance": "/products?cursor=unknown"
+}
+```
 
-## Authors and acknowledgment
+Основные статусы:
 
-Show your appreciation to those who have contributed to the project.
+| Статус | Когда возвращается                                          |
+| ------ | ----------------------------------------------------------- |
+| `400`  | Запрос не соответствует схеме, неизвестный товар или cursor |
+| `404`  | Заказ не найден                                             |
+| `422`  | Idempotency key уже использован с другим телом              |
+| `500`  | Внутренняя ошибка сервера или некорректный ответ handler    |
 
-## License
+## OpenAPI
 
-For open source projects, say how it is licensed.
+Исходный контракт находится в [`openapi/openapi.yaml`](openapi/openapi.yaml). Он
+описывает параметры запросов, тела ответов и схемы `Product`, `Order`, `ProductPage`,
+`OrderPage` и `Problem`.
 
-## Project status
+Middleware подключён до routers, поэтому сначала проверяется запрос. Response
+validator также проверяет результат handler: например, лишнее поле при
+`additionalProperties: false` приведёт к ошибке вместо отправки некорректного ответа
+клиенту.
 
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Проверить контракт:
+
+```bash
+pnpm lint:openapi
+```
+
+Собрать единый JSON-файл спецификации:
+
+```bash
+pnpm bundle:openapi
+```
+
+## Структура проекта
+
+```text
+marketplace-api/
+├── openapi/
+│   └── openapi.yaml
+├── src/
+│   ├── middleware/
+│   │   └── problem-handler.js
+│   ├── routes/
+│   │   ├── orders.js
+│   │   └── products.js
+│   └── app.js
+├── package.json
+└── README.md
+```
+
+## Ограничения текущей реализации
+
+Проект предназначен для обучения и пока не использует базу данных. Список товаров
+задан непосредственно в коде, а заказы и idempotency-записи хранятся в памяти
+процесса. После перезапуска сервера созданные заказы будут потеряны.

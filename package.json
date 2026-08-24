@@ -16,6 +16,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/app.js",
+    "dev": "node --watch src/app.js",
     "lint:openapi": "redocly lint openapi/openapi.yaml",
     "bundle:openapi": "redocly bundle openapi/openapi.yaml -o spec.json",
     "format": "prettier --write .",

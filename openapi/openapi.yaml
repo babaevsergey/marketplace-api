@@ -123,6 +123,14 @@ paths:
       responses:
         '201':
           description: Order created.
+          headers:
+            Idempotency-Replay:
+              description: Present with value true when a stored response is replayed.
+              required: false
+              schema:
+                type: string
+                enum:
+                  - 'true'
           content:
             application/json:
               schema:

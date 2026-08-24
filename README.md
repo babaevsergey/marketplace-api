@@ -7,6 +7,13 @@
 `express-openapi-validator`. Ошибки возвращаются в формате
 `application/problem+json`.
 
+## Обраний варіант
+
+**Варіант Б — runtime-валідація на кордоні.**
+
+`express-openapi-validator` перевіряє вхідні запити та відповіді відповідно до
+`openapi/openapi.yaml`. Помилки перетворюються на `application/problem+json`.
+
 ## Возможности
 
 - cursor-пагинация товаров и заказов;
@@ -177,6 +184,33 @@ curl 'http://localhost:3000/orders/order_1'
 ```
 
 Если заказ не найден, API возвращает статус `404`.
+
+## Acceptance-проверки
+
+Перед выполнением команд запустите API через `pnpm start`.
+
+```bash
+# Отсутствует Idempotency-Key → 400 problem+json
+curl -i -X POST http://localhost:3000/orders \
+  -H 'Content-Type: application/json' \
+  -d '{"items":[{"product_id":"product_1","quantity":1}]}'
+```
+
+```bash
+# Пустой items → 400 от OpenAPI-validator
+curl -i -X POST http://localhost:3000/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: invalid-items-check' \
+  -d '{"items":[]}'
+```
+
+```bash
+# Валидный запрос → 201
+curl -i -X POST http://localhost:3000/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: valid-order-check' \
+  -d '{"items":[{"product_id":"product_1","quantity":1}]}'
+```
 
 ## Формат ошибок
 

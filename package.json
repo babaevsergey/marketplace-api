@@ -1,7 +1,7 @@
 {
   "name": "marketplace-api",
   "version": "1.0.0",
-  "description": "To make it easy for you to get started with GitLab, here's a list of recommended next steps.",
+  "description": "Marketplace API with OpenAPI runtime request and response validation",
   "homepage": "https://gitlab.com/sergeybabaev063/nestjs#readme",
   "bugs": {
     "url": "https://gitlab.com/sergeybabaev063/nestjs/issues"
@@ -13,7 +13,7 @@
   "license": "ISC",
   "author": "",
   "type": "module",
-  "main": "index.js",
+  "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
     "dev": "node --watch src/app.js",

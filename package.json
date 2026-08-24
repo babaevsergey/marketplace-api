@@ -1,0 +1,22 @@
+{
+  "name": "marketplace-api",
+  "version": "1.0.0",
+  "description": "To make it easy for you to get started with GitLab, here's a list of recommended next steps.",
+  "homepage": "https://gitlab.com/sergeybabaev063/nestjs#readme",
+  "bugs": {
+    "url": "https://gitlab.com/sergeybabaev063/nestjs/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@gitlab.com/sergeybabaev063/nestjs.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "lint:openapi": "redocly lint openapi/openapi.yaml",
+    "bundle:openapi": "redocly bundle openapi/openapi.yaml -o spec.json"
+  }
+}

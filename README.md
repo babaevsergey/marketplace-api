@@ -1,76 +1,78 @@
 # Marketplace API
 
-Учебный REST API маркетплейса на Express с контрактом OpenAPI 3.0. API позволяет
-получать каталог товаров и создавать, просматривать и листать заказы.
+An educational marketplace REST API built with Express and an OpenAPI 3.0 contract.
+The API provides a product catalog and supports creating, retrieving, and listing
+orders.
 
-Входящие запросы и исходящие ответы проверяются по OpenAPI-схеме с помощью
-`express-openapi-validator`. Ошибки возвращаются в формате
+Incoming requests and outgoing responses are validated against the OpenAPI schema
+with `express-openapi-validator`. Errors are returned as
 `application/problem+json`.
 
-## Обраний варіант
+## Chosen approach
 
-**Варіант Б — runtime-валідація на кордоні.**
+**Variant B — runtime validation at the boundary.**
 
-`express-openapi-validator` перевіряє вхідні запити та відповіді відповідно до
-`openapi/openapi.yaml`. Помилки перетворюються на `application/problem+json`.
+`express-openapi-validator` validates incoming requests and outgoing responses
+against `openapi/openapi.yaml`. Errors are converted to
+`application/problem+json`.
 
-## Возможности
+## Features
 
-- cursor-пагинация товаров и заказов;
-- создание заказа с расчётом стоимости каждой позиции и общей суммы;
-- защита от повторного создания заказа через `Idempotency-Key`;
-- валидация request и response по OpenAPI;
-- единый формат ошибок Problem Details;
-- форматирование проекта через Prettier;
-- проверка OpenAPI-контракта через Redocly CLI.
+- cursor pagination for products and orders;
+- order creation with line-item and total price calculation;
+- duplicate order protection through `Idempotency-Key`;
+- OpenAPI request and response validation;
+- consistent Problem Details error responses;
+- code formatting with Prettier;
+- OpenAPI contract validation with Redocly CLI.
 
-## Требования
+## Requirements
 
-- Node.js 20.19 или новее;
-- pnpm 9 или новее.
+- Node.js 20.19 or later;
+- pnpm 9 or later.
 
-## Установка и запуск
+## Installation and startup
 
 ```bash
 pnpm install
 pnpm start
 ```
 
-API будет доступен по адресу `http://localhost:3000`.
+The API will be available at `http://localhost:3000`.
 
-Для запуска с автоматической перезагрузкой при изменении файлов:
+To start the server with automatic reloads when files change:
 
 ```bash
 pnpm dev
 ```
 
-## Команды
+## Commands
 
-| Команда               | Назначение                                    |
-| --------------------- | --------------------------------------------- |
-| `pnpm start`          | Запустить API                                 |
-| `pnpm dev`            | Запустить API в watch-режиме                  |
-| `pnpm lint:openapi`   | Проверить OpenAPI-контракт                    |
-| `pnpm bundle:openapi` | Собрать контракт в `spec.json`                |
-| `pnpm format`         | Отформатировать файлы через Prettier          |
-| `pnpm format:check`   | Проверить форматирование без изменения файлов |
+| Command               | Purpose                                          |
+| --------------------- | ------------------------------------------------ |
+| `pnpm start`          | Start the API                                    |
+| `pnpm dev`            | Start the API in watch mode                      |
+| `pnpm lint:openapi`   | Validate the OpenAPI contract                    |
+| `pnpm bundle:openapi` | Bundle the contract into `spec.json`             |
+| `pnpm format`         | Format project files with Prettier               |
+| `pnpm format:check`   | Check formatting without modifying project files |
 
 ## API
 
-### Получить товары
+### List products
 
 ```http
 GET /products?limit=2
 ```
 
-Query-параметры:
+Query parameters:
 
-| Параметр | Описание                                         |
-| -------- | ------------------------------------------------ |
-| `limit`  | Размер страницы от 1 до 100. По умолчанию — 20   |
-| `cursor` | Cursor из поля `next_cursor` предыдущей страницы |
+| Parameter | Description                                                      |
+| --------- | ---------------------------------------------------------------- |
+| `limit`   | Page size from 1 to 100. Defaults to 20                          |
+| `cursor`  | The cursor from the previous page's `next_cursor` response field |
 
-Пример:
+Example:
 
 ```bash
 curl 'http://localhost:3000/products?limit=2'
@@ -98,24 +100,24 @@ curl 'http://localhost:3000/products?limit=2'
 }
 ```
 
-Чтобы получить следующую страницу, передайте полученный cursor без изменения:
+Pass the returned cursor unchanged to retrieve the next page:
 
 ```bash
 curl 'http://localhost:3000/products?limit=2&cursor=cHJvZHVjdF8y'
 ```
 
-Когда данные закончатся, `next_cursor` будет равен `null`. Неизвестный cursor
-возвращает статус `400`.
+When there are no more results, `next_cursor` is `null`. An unknown cursor returns
+status `400`.
 
-### Создать заказ
+### Create an order
 
 ```http
 POST /orders
 Content-Type: application/json
-Idempotency-Key: <уникальный ключ>
+Idempotency-Key: <unique key>
 ```
 
-Пример:
+Example:
 
 ```bash
 curl --request POST 'http://localhost:3000/orders' \
@@ -129,7 +131,7 @@ curl --request POST 'http://localhost:3000/orders' \
   }'
 ```
 
-Успешный ответ имеет статус `201`:
+A successful response has status `201`:
 
 ```json
 {
@@ -154,26 +156,26 @@ curl --request POST 'http://localhost:3000/orders' \
 }
 ```
 
-Повторный запрос с тем же `Idempotency-Key` и тем же телом возвращает сохранённый
-заказ и заголовок `Idempotency-Replay: true`. Если использовать этот ключ с другим
-телом, API вернёт статус `422`.
+Repeating a request with the same `Idempotency-Key` and body returns the stored order
+with the `Idempotency-Replay: true` response header. Reusing the key with a different
+body returns status `422`.
 
-Если в заказе указан неизвестный `product_id`, API вернёт статус `400`.
+If the order contains an unknown `product_id`, the API returns status `400`.
 
-### Получить список заказов
+### List orders
 
 ```http
 GET /orders?limit=20&cursor=<cursor>
 ```
 
-Пагинация работает так же, как для `/products`: cursor следующей страницы приходит
-в `next_cursor`, а последняя страница содержит `"next_cursor": null`.
+Pagination works the same way as for `/products`: the next page cursor is returned
+in `next_cursor`, and the final page contains `"next_cursor": null`.
 
 ```bash
 curl 'http://localhost:3000/orders?limit=2'
 ```
 
-### Получить заказ по ID
+### Get an order by ID
 
 ```http
 GET /orders/{orderId}
@@ -183,21 +185,21 @@ GET /orders/{orderId}
 curl 'http://localhost:3000/orders/order_1'
 ```
 
-Если заказ не найден, API возвращает статус `404`.
+If the order does not exist, the API returns status `404`.
 
-## Acceptance-проверки
+## Acceptance checks
 
-Перед выполнением команд запустите API через `pnpm start`.
+Start the API with `pnpm start` before running these commands.
 
 ```bash
-# Отсутствует Idempotency-Key → 400 problem+json
+# Missing Idempotency-Key → 400 problem+json
 curl -i -X POST http://localhost:3000/orders \
   -H 'Content-Type: application/json' \
   -d '{"items":[{"product_id":"product_1","quantity":1}]}'
 ```
 
 ```bash
-# Пустой items → 400 от OpenAPI-validator
+# Empty items → 400 from the OpenAPI validator
 curl -i -X POST http://localhost:3000/orders \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: invalid-items-check' \
@@ -205,17 +207,17 @@ curl -i -X POST http://localhost:3000/orders \
 ```
 
 ```bash
-# Валидный запрос → 201
+# Valid request → 201
 curl -i -X POST http://localhost:3000/orders \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: valid-order-check' \
   -d '{"items":[{"product_id":"product_1","quantity":1}]}'
 ```
 
-## Формат ошибок
+## Error format
 
-Ошибки приложения и ошибки OpenAPI-валидации возвращаются с Content-Type
-`application/problem+json`:
+Application and OpenAPI validation errors use the
+`application/problem+json` Content-Type:
 
 ```json
 {
@@ -227,39 +229,40 @@ curl -i -X POST http://localhost:3000/orders \
 }
 ```
 
-Основные статусы:
+Common statuses:
 
-| Статус | Когда возвращается                                          |
-| ------ | ----------------------------------------------------------- |
-| `400`  | Запрос не соответствует схеме, неизвестный товар или cursor |
-| `404`  | Заказ не найден                                             |
-| `422`  | Idempotency key уже использован с другим телом              |
-| `500`  | Внутренняя ошибка сервера или некорректный ответ handler    |
+| Status | Returned when                                                      |
+| ------ | ------------------------------------------------------------------ |
+| `400`  | The request violates the schema, or a product or cursor is unknown |
+| `404`  | The requested order does not exist                                 |
+| `422`  | An idempotency key is reused with a different request body         |
+| `500`  | An internal error occurs or a handler returns an invalid response  |
 
 ## OpenAPI
 
-Исходный контракт находится в [`openapi/openapi.yaml`](openapi/openapi.yaml). Он
-описывает параметры запросов, тела ответов и схемы `Product`, `Order`, `ProductPage`,
-`OrderPage` и `Problem`.
+The source contract is located at
+[`openapi/openapi.yaml`](openapi/openapi.yaml). It defines request parameters,
+response bodies, and the `Product`, `Order`, `ProductPage`, `OrderPage`, and `Problem`
+schemas.
 
-Middleware подключён до routers, поэтому сначала проверяется запрос. Response
-validator также проверяет результат handler: например, лишнее поле при
-`additionalProperties: false` приведёт к ошибке вместо отправки некорректного ответа
-клиенту.
+The validation middleware runs before the routers, so requests are validated before
+they reach a handler. The response validator also checks handler results. For
+example, an extra field in a schema with `additionalProperties: false` causes a
+validation error instead of sending an invalid response to the client.
 
-Проверить контракт:
+Validate the contract:
 
 ```bash
 pnpm lint:openapi
 ```
 
-Собрать единый JSON-файл спецификации:
+Bundle the specification into a single JSON file:
 
 ```bash
 pnpm bundle:openapi
 ```
 
-## Структура проекта
+## Project structure
 
 ```text
 marketplace-api/
@@ -276,8 +279,8 @@ marketplace-api/
 └── README.md
 ```
 
-## Ограничения текущей реализации
+## Current limitations
 
-Проект предназначен для обучения и пока не использует базу данных. Список товаров
-задан непосредственно в коде, а заказы и idempotency-записи хранятся в памяти
-процесса. После перезапуска сервера созданные заказы будут потеряны.
+This project is intended for learning and does not use a database. Products are
+defined directly in the source code, while orders and idempotency records are stored
+in process memory. All created orders are lost when the server restarts.

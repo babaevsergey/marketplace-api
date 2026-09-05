@@ -12,8 +12,13 @@ export class DatabaseService implements OnModuleDestroy {
     const connectionString = config.get('DB_URL', { infer: true });
     const passwordFile = config.get('DB_PASSWORD_FILE', { infer: true });
 
+    const databaseUrl = new URL(connectionString);
+
     this.pool = new pg.Pool({
-      connectionString,
+      host: databaseUrl.hostname,
+      port: Number(databaseUrl.port || 5432),
+      database: databaseUrl.pathname.slice(1),
+      user: decodeURIComponent(databaseUrl.username),
 
       password: async () => {
         const password = await readFile(passwordFile, 'utf8');

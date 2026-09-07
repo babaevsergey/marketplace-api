@@ -1,5 +1,3 @@
-Полностью замени содержимое `README.md` на это:
-
 ````md
 # Marketplace API
 

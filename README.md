@@ -1,5 +1,3 @@
-Полностью замени содержимое `README.md` на это:
-
 ````md
 # Marketplace API
 
@@ -208,6 +206,135 @@ Restore the local configuration:
 ```bash
 mv /tmp/marketplace-api-hw11.env .env
 ```
+
+## Database Schema and Query Optimization
+
+The main table used for the performance tests is `orders`. The seed creates:
+
+- 10,000 users;
+- 50,000 products;
+- 100,000 orders;
+- 200,000 order items.
+
+### Fresh-clone database access
+
+Start PostgreSQL from a fresh clone with one command:
+
+```bash
+docker compose up -d db --wait
+```
+
+Connect and verify the database with one command:
+
+```bash
+docker compose exec -T db psql -U admin -d marketplace -Atc "SELECT 1"
+```
+
+The expected result is:
+
+```text
+1
+```
+
+The local development credentials used by the PostgreSQL container are defined in
+`docker-compose.yml`. The application password remains in the runtime-mounted secret
+file and is not committed to Git.
+
+### Reproduce the complete optimization workflow
+
+Remove the existing PostgreSQL volume:
+
+```bash
+docker compose down -v
+```
+
+Start a clean PostgreSQL instance:
+
+```bash
+docker compose up -d db --wait
+```
+
+Apply the database schema:
+
+```bash
+docker compose exec -T db \
+  psql -v ON_ERROR_STOP=1 -U admin -d marketplace \
+  < db/schema.sql
+```
+
+Generate the test data:
+
+```bash
+docker compose exec -T db \
+  psql -v ON_ERROR_STOP=1 -U admin -d marketplace \
+  < db/seed.sql
+```
+
+Verify the number of rows in the main table:
+
+```bash
+docker compose exec -T db \
+  psql -U admin -d marketplace \
+  -Atc "SELECT count(*) FROM orders;"
+```
+
+The expected result is:
+
+```text
+100000
+```
+
+Run the three execution plans before adding indexes:
+
+```bash
+docker compose exec -T db \
+  psql -U admin -d marketplace \
+  -c "EXPLAIN (ANALYZE, BUFFERS) $(cat db/queries/q1.sql)"
+
+docker compose exec -T db \
+  psql -U admin -d marketplace \
+  -c "EXPLAIN (ANALYZE, BUFFERS) $(cat db/queries/q2.sql)"
+
+docker compose exec -T db \
+  psql -U admin -d marketplace \
+  -c "EXPLAIN (ANALYZE, BUFFERS) $(cat db/queries/q3.sql)"
+```
+
+All three plans must contain `Seq Scan`.
+
+Apply the indexes and update the planner statistics:
+
+```bash
+docker compose exec -T db \
+  psql -v ON_ERROR_STOP=1 -U admin -d marketplace \
+  < db/indexes.sql
+
+docker compose exec -T db \
+  psql -U admin -d marketplace \
+  -c "ANALYZE;"
+```
+
+Run the same three execution plans again:
+
+```bash
+docker compose exec -T db \
+  psql -U admin -d marketplace \
+  -c "EXPLAIN (ANALYZE, BUFFERS) $(cat db/queries/q1.sql)"
+
+docker compose exec -T db \
+  psql -U admin -d marketplace \
+  -c "EXPLAIN (ANALYZE, BUFFERS) $(cat db/queries/q2.sql)"
+
+docker compose exec -T db \
+  psql -U admin -d marketplace \
+  -c "EXPLAIN (ANALYZE, BUFFERS) $(cat db/queries/q3.sql)"
+```
+
+After indexing, every query must use `Index Scan`, `Index Only Scan`, or
+`Bitmap Index Scan` and must not contain `Seq Scan`.
+
+The complete before-and-after execution plans and their explanations are available
+in [`db/OPTIMIZATIONS.md`](db/OPTIMIZATIONS.md).
 
 ## Database connection
 

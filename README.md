@@ -1,63 +1,397 @@
+````md
 # Marketplace API
 
-An educational marketplace REST API built with Express and an OpenAPI 3.0 contract.
+An educational marketplace REST API built with NestJS, Express, PostgreSQL, and an
+OpenAPI 3.0 contract.
+
 The API provides a product catalog and supports creating, retrieving, and listing
-orders.
-
-Incoming requests and outgoing responses are validated against the OpenAPI schema
-with `express-openapi-validator`. Errors are returned as
+orders. Incoming requests and outgoing responses are validated against the OpenAPI
+schema with `express-openapi-validator`. Errors are returned as
 `application/problem+json`.
 
-## Chosen approach
-
-**Variant B — runtime validation at the boundary.**
-
-`express-openapi-validator` validates incoming requests and outgoing responses
-against `openapi/openapi.yaml`. Errors are converted to
-`application/problem+json`.
+Application configuration is validated with Zod during startup. The PostgreSQL
+password is stored in a runtime-mounted file and can be rotated without restarting
+the Node.js process.
 
 ## Features
 
+- NestJS application and dependency injection;
+- Zod environment validation with fail-fast startup;
+- typed configuration through `ConfigService<Env, true>`;
+- PostgreSQL connection pool;
+- database password rotation without restarting Node.js;
+- secrets excluded from Git and Docker image layers;
+- Docker Compose stack with API and PostgreSQL;
 - cursor pagination for products and orders;
 - order creation with line-item and total price calculation;
 - duplicate order protection through `Idempotency-Key`;
 - OpenAPI request and response validation;
 - consistent Problem Details error responses;
-- code formatting with Prettier;
 - OpenAPI contract validation with Redocly CLI.
 
 ## Requirements
 
-- Node.js 20.19 or later;
-- pnpm 9 or later.
+- Node.js 24 or later;
+- pnpm 10.26.0 or later;
+- Docker with Docker Compose.
 
-## Installation and startup
+## Quick start with Docker
+
+Create the local database secret:
+
+```bash
+mkdir -p secrets
+printf '%s' 'marketplace_password' > secrets/db_password
+```
+
+Start the API and PostgreSQL:
+
+```bash
+docker compose up -d --build
+```
+
+Check the running services:
+
+```bash
+docker compose ps
+```
+
+The API is available at:
+
+```text
+http://localhost:3000
+```
+
+Check the application and database:
+
+```bash
+curl -s http://localhost:3000/health
+curl -s http://localhost:3000/db
+curl -s http://localhost:3000/products
+```
+
+Stop the stack without deleting PostgreSQL data:
+
+```bash
+docker compose down
+```
+
+## Local development
+
+Install dependencies:
 
 ```bash
 pnpm install
+```
+
+Create the local configuration:
+
+```bash
+cp .env.example .env
+mkdir -p secrets
+printf '%s' 'marketplace_password' > secrets/db_password
+```
+
+Start only PostgreSQL in Docker:
+
+```bash
+docker compose up -d db
+```
+
+Start the application locally:
+
+```bash
 pnpm start
 ```
 
-The API will be available at `http://localhost:3000`.
-
-To start the server with automatic reloads when files change:
+For development with automatic reloads:
 
 ```bash
-pnpm dev
+pnpm start:dev
+```
+
+The local application connects to PostgreSQL through:
+
+```text
+127.0.0.1:21432
+```
+
+Inside the Compose network, the API container connects through:
+
+```text
+db:5432
 ```
 
 ## Commands
 
 | Command               | Purpose                                          |
 | --------------------- | ------------------------------------------------ |
-| `pnpm start`          | Start the API                                    |
-| `pnpm dev`            | Start the API in watch mode                      |
+| `pnpm build`          | Compile TypeScript into `dist`                   |
+| `pnpm start`          | Build and start the application                  |
+| `pnpm start:dev`      | Start the application in watch mode              |
+| `pnpm start:legacy`   | Start the previous Express entry point           |
+| `pnpm check:env`      | Compare `.env.example` with the Zod schema       |
 | `pnpm lint:openapi`   | Validate the OpenAPI contract                    |
-| `pnpm bundle:openapi` | Bundle the contract into `spec.json`             |
+| `pnpm bundle:openapi` | Bundle the OpenAPI contract into `spec.json`     |
 | `pnpm format`         | Format project files with Prettier               |
 | `pnpm format:check`   | Check formatting without modifying project files |
 
+## Configuration
+
+Application configuration is validated with Zod during startup. If a required
+variable is missing or invalid, the application exits before opening the HTTP port.
+
+The configuration flow is:
+
+```text
+process.env → Zod schema → ConfigService<Env, true> → application
+```
+
+| Variable         | Required | Default       | Source                | Description                                  |
+| ---------------- | -------- | ------------- | --------------------- | -------------------------------------------- |
+| NODE_ENV         | No       | `development` | environment or `.env` | Application environment                      |
+| PORT             | No       | `3000`        | environment or `.env` | HTTP server port                             |
+| DB_URL           | Yes      | —             | environment or `.env` | PostgreSQL connection URL without a password |
+| DB_PASSWORD_FILE | Yes      | —             | environment or `.env` | Path to the database password file           |
+
+The real database password is not stored in `.env`. The application reads it from
+`secrets/db_password`. The `.env` file and the complete `secrets` directory are
+excluded from Git and the Docker build context.
+
+The committed `.env.example` file is the public configuration contract. It contains
+all variables from the Zod schema but no real secrets.
+
+### Environment contract check
+
+Verify that `.env.example` contains exactly the same variables as the Zod schema:
+
+```bash
+pnpm check:env
+```
+
+The command exits with code `1` when a schema variable is missing from
+`.env.example` or when the example contains an unknown variable.
+
+### Fail-fast verification
+
+Temporarily move the local `.env` file:
+
+```bash
+mv .env /tmp/marketplace-api-hw11.env
+```
+
+Start the application without the required variables:
+
+```bash
+env -u DB_URL -u DB_PASSWORD_FILE pnpm start
+```
+
+The process must exit with a non-zero code and print the names of the invalid
+variables:
+
+```text
+Invalid environment configuration:
+DB_URL: DB_URL is required
+DB_PASSWORD_FILE: DB_PASSWORD_FILE is required
+```
+
+Check the exit code:
+
+```bash
+echo $?
+```
+
+Restore the local configuration:
+
+```bash
+mv /tmp/marketplace-api-hw11.env .env
+```
+
+## Database connection
+
+The application uses `pg.Pool` with a maximum of five connections.
+
+The password is provided as an asynchronous function:
+
+```ts
+password: async () => {
+  const password = await readFile(passwordFile, 'utf8');
+  return password.trim();
+};
+```
+
+The function reads the current password whenever the pool creates a new PostgreSQL
+connection. Existing connections do not authenticate again until they are closed.
+
+Check the connection:
+
+```bash
+curl -s http://localhost:3000/db
+```
+
+Example response:
+
+```json
+{
+  "status": "ok",
+  "current_user": "app_user",
+  "database_time": "2026-09-05T08:25:31.445Z",
+  "uptime_seconds": 25
+}
+```
+
+## Database password rotation
+
+Keep the application running and record its uptime:
+
+```bash
+curl -s http://localhost:3000/health
+```
+
+Rotate the database password:
+
+```bash
+bash rotate.sh
+```
+
+The script performs the following operations:
+
+1. Generates a new random password.
+2. Changes the password of `app_user` in PostgreSQL.
+3. Atomically updates `secrets/db_password`.
+4. Terminates existing `app_user` connections.
+
+Verify that PostgreSQL remains available:
+
+```bash
+curl -s http://localhost:3000/db
+```
+
+Check the process uptime again:
+
+```bash
+curl -s http://localhost:3000/health
+```
+
+The second uptime value must be greater than the first one. This proves that the
+pool opened a new connection with the updated password without restarting the
+Node.js process.
+
+Environment variables are inherited when a process starts. Changing an external
+`.env` file does not mutate `process.env` inside an already running process. The
+password is therefore stored in a file that can be reread when the pool creates a
+new connection.
+
+If the PostgreSQL volume is deleted, restore the initial local password before
+creating a new database:
+
+```bash
+docker compose down -v
+printf '%s' 'marketplace_password' > secrets/db_password
+docker compose up -d --build
+```
+
+## Docker image security checks
+
+Build the image:
+
+```bash
+docker build -t marketplace-api:hw-11 .
+```
+
+Inspect its files:
+
+```bash
+docker run --rm marketplace-api:hw-11 ls -la /app
+```
+
+The image contains `.env.example`, but does not contain `.env`, `secrets`, or
+TypeScript source files.
+
+Verify that the real `.env` file is absent:
+
+```bash
+docker run --rm marketplace-api:hw-11 \
+  sh -c 'cat /app/.env' 2>&1
+```
+
+The expected result is:
+
+```text
+cat: /app/.env: No such file or directory
+```
+
+Verify that the final process does not run as root:
+
+```bash
+docker run --rm marketplace-api:hw-11 id -u
+```
+
+The expected UID is not `0`.
+
+Inspect image environment variables:
+
+```bash
+docker inspect \
+  --format '{{.Config.Env}}' \
+  marketplace-api:hw-11
+```
+
+Inspect the image history:
+
+```bash
+docker history --no-trunc marketplace-api:hw-11 |
+  grep -i password
+```
+
+The history command must not find any password.
+
+Verify that local secret files are ignored by Git:
+
+```bash
+git check-ignore .env
+git check-ignore secrets/db_password
+git ls-files .env
+```
+
+The first two commands print the ignored paths. The last command must produce no
+output.
+
 ## API
+
+### Health check
+
+```http
+GET /health
+```
+
+Example:
+
+```bash
+curl -s http://localhost:3000/health
+```
+
+```json
+{
+  "status": "ok",
+  "uptime_seconds": 25
+}
+```
+
+### Database check
+
+```http
+GET /db
+```
+
+Example:
+
+```bash
+curl -s http://localhost:3000/db
+```
+
+The endpoint executes a real PostgreSQL query and returns the current database user,
+database time, and Node.js process uptime.
 
 ### List products
 
@@ -67,10 +401,10 @@ GET /products?limit=2
 
 Query parameters:
 
-| Parameter | Description                                                      |
-| --------- | ---------------------------------------------------------------- |
-| `limit`   | Page size from 1 to 100. Defaults to 20                          |
-| `cursor`  | The cursor from the previous page's `next_cursor` response field |
+| Parameter | Description                                                |
+| --------- | ---------------------------------------------------------- |
+| `limit`   | Page size from 1 to 100. Defaults to 20                    |
+| `cursor`  | Cursor returned in the previous page's `next_cursor` field |
 
 Example:
 
@@ -156,11 +490,11 @@ A successful response has status `201`:
 }
 ```
 
-Repeating a request with the same `Idempotency-Key` and body returns the stored order
-with the `Idempotency-Replay: true` response header. Reusing the key with a different
-body returns status `422`.
+Repeating a request with the same `Idempotency-Key` and request body returns the
+stored order with the `Idempotency-Replay: true` response header. Reusing the same
+key with a different body returns status `422`.
 
-If the order contains an unknown `product_id`, the API returns status `400`.
+An unknown `product_id` returns status `400`.
 
 ### List orders
 
@@ -168,8 +502,7 @@ If the order contains an unknown `product_id`, the API returns status `400`.
 GET /orders?limit=20&cursor=<cursor>
 ```
 
-Pagination works the same way as for `/products`: the next page cursor is returned
-in `next_cursor`, and the final page contains `"next_cursor": null`.
+Pagination works the same way as product pagination:
 
 ```bash
 curl 'http://localhost:3000/orders?limit=2'
@@ -181,43 +514,18 @@ curl 'http://localhost:3000/orders?limit=2'
 GET /orders/{orderId}
 ```
 
+Example:
+
 ```bash
 curl 'http://localhost:3000/orders/order_1'
 ```
 
-If the order does not exist, the API returns status `404`.
-
-## Acceptance checks
-
-Start the API with `pnpm start` before running these commands.
-
-```bash
-# Missing Idempotency-Key → 400 problem+json
-curl -i -X POST http://localhost:3000/orders \
-  -H 'Content-Type: application/json' \
-  -d '{"items":[{"product_id":"product_1","quantity":1}]}'
-```
-
-```bash
-# Empty items → 400 from the OpenAPI validator
-curl -i -X POST http://localhost:3000/orders \
-  -H 'Content-Type: application/json' \
-  -H 'Idempotency-Key: invalid-items-check' \
-  -d '{"items":[]}'
-```
-
-```bash
-# Valid request → 201
-curl -i -X POST http://localhost:3000/orders \
-  -H 'Content-Type: application/json' \
-  -H 'Idempotency-Key: valid-order-check' \
-  -d '{"items":[{"product_id":"product_1","quantity":1}]}'
-```
+A missing order returns status `404`.
 
 ## Error format
 
 Application and OpenAPI validation errors use the
-`application/problem+json` Content-Type:
+`application/problem+json` content type:
 
 ```json
 {
@@ -231,24 +539,22 @@ Application and OpenAPI validation errors use the
 
 Common statuses:
 
-| Status | Returned when                                                      |
-| ------ | ------------------------------------------------------------------ |
-| `400`  | The request violates the schema, or a product or cursor is unknown |
-| `404`  | The requested order does not exist                                 |
-| `422`  | An idempotency key is reused with a different request body         |
-| `500`  | An internal error occurs or a handler returns an invalid response  |
+| Status | Returned when                                                     |
+| ------ | ----------------------------------------------------------------- |
+| `400`  | Request validation fails, or a product or cursor is unknown       |
+| `404`  | The requested order does not exist                                |
+| `422`  | An idempotency key is reused with a different request body        |
+| `500`  | An internal error occurs or a handler returns an invalid response |
 
 ## OpenAPI
 
-The source contract is located at
-[`openapi/openapi.yaml`](openapi/openapi.yaml). It defines request parameters,
-response bodies, and the `Product`, `Order`, `ProductPage`, `OrderPage`, and `Problem`
-schemas.
+The source contract is located at `openapi/openapi.yaml`. It defines request
+parameters, response bodies, and the `Product`, `Order`, `ProductPage`, `OrderPage`,
+and `Problem` schemas.
 
-The validation middleware runs before the routers, so requests are validated before
-they reach a handler. The response validator also checks handler results. For
-example, an extra field in a schema with `additionalProperties: false` causes a
-validation error instead of sending an invalid response to the client.
+`express-openapi-validator` validates documented requests and responses at runtime.
+The NestJS `/health` and `/db` endpoints are currently allowed as undocumented
+routes.
 
 Validate the contract:
 
@@ -256,7 +562,7 @@ Validate the contract:
 pnpm lint:openapi
 ```
 
-Bundle the specification into a single JSON file:
+Bundle the specification:
 
 ```bash
 pnpm bundle:openapi
@@ -266,21 +572,45 @@ pnpm bundle:openapi
 
 ```text
 marketplace-api/
+├── docker/
+│   └── init.sql
 ├── openapi/
 │   └── openapi.yaml
+├── scripts/
+│   └── check-env-example.mjs
+├── secrets/
+│   └── db_password
 ├── src/
+│   ├── config/
+│   │   └── env.schema.ts
+│   ├── database/
+│   │   ├── database.module.ts
+│   │   └── database.service.ts
 │   ├── middleware/
 │   │   └── problem-handler.js
 │   ├── routes/
 │   │   ├── orders.js
 │   │   └── products.js
-│   └── app.js
+│   ├── app.controller.ts
+│   ├── app.module.ts
+│   └── main.ts
+├── .dockerignore
+├── .env.example
+├── .gitignore
+├── Dockerfile
+├── docker-compose.yml
 ├── package.json
+├── pnpm-lock.yaml
+├── rotate.sh
+├── tsconfig.json
 └── README.md
 ```
 
+The `secrets/db_password` and `.env` files exist only locally and are not committed.
+
 ## Current limitations
 
-This project is intended for learning and does not use a database. Products are
-defined directly in the source code, while orders and idempotency records are stored
-in process memory. All created orders are lost when the server restarts.
+The `/db` endpoint uses PostgreSQL to verify connectivity and database password
+rotation. Products, orders, and idempotency records are still stored in process
+memory and will be migrated to PostgreSQL in a later database assignment.
+````

@@ -1,93 +1,286 @@
-# nestjs
+# Marketplace API
 
+An educational marketplace REST API built with Express and an OpenAPI 3.0 contract.
+The API provides a product catalog and supports creating, retrieving, and listing
+orders.
 
+Incoming requests and outgoing responses are validated against the OpenAPI schema
+with `express-openapi-validator`. Errors are returned as
+`application/problem+json`.
 
-## Getting started
+## Chosen approach
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+**Variant B — runtime validation at the boundary.**
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+`express-openapi-validator` validates incoming requests and outgoing responses
+against `openapi/openapi.yaml`. Errors are converted to
+`application/problem+json`.
 
-## Add your files
+## Features
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+- cursor pagination for products and orders;
+- order creation with line-item and total price calculation;
+- duplicate order protection through `Idempotency-Key`;
+- OpenAPI request and response validation;
+- consistent Problem Details error responses;
+- code formatting with Prettier;
+- OpenAPI contract validation with Redocly CLI.
 
+## Requirements
+
+- Node.js 20.19 or later;
+- pnpm 9 or later.
+
+## Installation and startup
+
+```bash
+pnpm install
+pnpm start
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/sergeybabaev063/nestjs.git
-git branch -M main
-git push -uf origin main
+
+The API will be available at `http://localhost:3000`.
+
+To start the server with automatic reloads when files change:
+
+```bash
+pnpm dev
 ```
 
-## Integrate with your tools
+## Commands
 
-* [Set up project integrations](https://gitlab.com/sergeybabaev063/nestjs/-/settings/integrations)
+| Command               | Purpose                                          |
+| --------------------- | ------------------------------------------------ |
+| `pnpm start`          | Start the API                                    |
+| `pnpm dev`            | Start the API in watch mode                      |
+| `pnpm lint:openapi`   | Validate the OpenAPI contract                    |
+| `pnpm bundle:openapi` | Bundle the contract into `spec.json`             |
+| `pnpm format`         | Format project files with Prettier               |
+| `pnpm format:check`   | Check formatting without modifying project files |
 
-## Collaborate with your team
+## API
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+### List products
 
-## Test and Deploy
+```http
+GET /products?limit=2
+```
 
-Use the built-in continuous integration in GitLab.
+Query parameters:
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+| Parameter | Description                                                      |
+| --------- | ---------------------------------------------------------------- |
+| `limit`   | Page size from 1 to 100. Defaults to 20                          |
+| `cursor`  | The cursor from the previous page's `next_cursor` response field |
 
-***
+Example:
 
-# Editing this README
+```bash
+curl 'http://localhost:3000/products?limit=2'
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```json
+{
+  "items": [
+    {
+      "id": "product_1",
+      "name": "Mechanical Keyboard",
+      "description": "RGB mechanical keyboard",
+      "price_cents": 19999,
+      "available": true
+    },
+    {
+      "id": "product_2",
+      "name": "Automative Keyboard",
+      "description": "RGB automative keyboard",
+      "price_cents": 29999,
+      "available": true
+    }
+  ],
+  "next_cursor": "cHJvZHVjdF8y"
+}
+```
 
-## Suggestions for a good README
+Pass the returned cursor unchanged to retrieve the next page:
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```bash
+curl 'http://localhost:3000/products?limit=2&cursor=cHJvZHVjdF8y'
+```
 
-## Name
-Choose a self-explaining name for your project.
+When there are no more results, `next_cursor` is `null`. An unknown cursor returns
+status `400`.
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+### Create an order
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+```http
+POST /orders
+Content-Type: application/json
+Idempotency-Key: <unique key>
+```
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Example:
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```bash
+curl --request POST 'http://localhost:3000/orders' \
+  --header 'Content-Type: application/json' \
+  --header 'Idempotency-Key: checkout-123' \
+  --data '{
+    "items": [
+      { "product_id": "product_1", "quantity": 2 },
+      { "product_id": "product_2", "quantity": 1 }
+    ]
+  }'
+```
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+A successful response has status `201`:
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+```json
+{
+  "id": "order_1",
+  "items": [
+    {
+      "product_id": "product_1",
+      "quantity": 2,
+      "unit_price_cents": 19999,
+      "line_total_cents": 39998
+    },
+    {
+      "product_id": "product_2",
+      "quantity": 1,
+      "unit_price_cents": 29999,
+      "line_total_cents": 29999
+    }
+  ],
+  "total_cents": 69997,
+  "status": "created",
+  "created_at": "2026-08-24T12:00:00.000Z"
+}
+```
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+Repeating a request with the same `Idempotency-Key` and body returns the stored order
+with the `Idempotency-Replay: true` response header. Reusing the key with a different
+body returns status `422`.
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+If the order contains an unknown `product_id`, the API returns status `400`.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+### List orders
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```http
+GET /orders?limit=20&cursor=<cursor>
+```
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+Pagination works the same way as for `/products`: the next page cursor is returned
+in `next_cursor`, and the final page contains `"next_cursor": null`.
 
-## License
-For open source projects, say how it is licensed.
+```bash
+curl 'http://localhost:3000/orders?limit=2'
+```
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+### Get an order by ID
+
+```http
+GET /orders/{orderId}
+```
+
+```bash
+curl 'http://localhost:3000/orders/order_1'
+```
+
+If the order does not exist, the API returns status `404`.
+
+## Acceptance checks
+
+Start the API with `pnpm start` before running these commands.
+
+```bash
+# Missing Idempotency-Key → 400 problem+json
+curl -i -X POST http://localhost:3000/orders \
+  -H 'Content-Type: application/json' \
+  -d '{"items":[{"product_id":"product_1","quantity":1}]}'
+```
+
+```bash
+# Empty items → 400 from the OpenAPI validator
+curl -i -X POST http://localhost:3000/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: invalid-items-check' \
+  -d '{"items":[]}'
+```
+
+```bash
+# Valid request → 201
+curl -i -X POST http://localhost:3000/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: valid-order-check' \
+  -d '{"items":[{"product_id":"product_1","quantity":1}]}'
+```
+
+## Error format
+
+Application and OpenAPI validation errors use the
+`application/problem+json` Content-Type:
+
+```json
+{
+  "type": "https://marketplace.dev/problems/request-error",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Unknown cursor",
+  "instance": "/products?cursor=unknown"
+}
+```
+
+Common statuses:
+
+| Status | Returned when                                                      |
+| ------ | ------------------------------------------------------------------ |
+| `400`  | The request violates the schema, or a product or cursor is unknown |
+| `404`  | The requested order does not exist                                 |
+| `422`  | An idempotency key is reused with a different request body         |
+| `500`  | An internal error occurs or a handler returns an invalid response  |
+
+## OpenAPI
+
+The source contract is located at
+[`openapi/openapi.yaml`](openapi/openapi.yaml). It defines request parameters,
+response bodies, and the `Product`, `Order`, `ProductPage`, `OrderPage`, and `Problem`
+schemas.
+
+The validation middleware runs before the routers, so requests are validated before
+they reach a handler. The response validator also checks handler results. For
+example, an extra field in a schema with `additionalProperties: false` causes a
+validation error instead of sending an invalid response to the client.
+
+Validate the contract:
+
+```bash
+pnpm lint:openapi
+```
+
+Bundle the specification into a single JSON file:
+
+```bash
+pnpm bundle:openapi
+```
+
+## Project structure
+
+```text
+marketplace-api/
+├── openapi/
+│   └── openapi.yaml
+├── src/
+│   ├── middleware/
+│   │   └── problem-handler.js
+│   ├── routes/
+│   │   ├── orders.js
+│   │   └── products.js
+│   └── app.js
+├── package.json
+└── README.md
+```
+
+## Current limitations
+
+This project is intended for learning and does not use a database. Products are
+defined directly in the source code, while orders and idempotency records are stored
+in process memory. All created orders are lost when the server restarts.

@@ -1,0 +1,33 @@
+{
+  "name": "marketplace-api",
+  "version": "1.0.0",
+  "description": "Marketplace API with OpenAPI runtime request and response validation",
+  "homepage": "https://gitlab.com/sergeybabaev063/nestjs#readme",
+  "bugs": {
+    "url": "https://gitlab.com/sergeybabaev063/nestjs/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@gitlab.com/sergeybabaev063/nestjs.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "node --watch src/app.js",
+    "lint:openapi": "redocly lint openapi/openapi.yaml",
+    "bundle:openapi": "redocly bundle openapi/openapi.yaml -o spec.json",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "express": "4.22.2",
+    "express-openapi-validator": "5.6.2"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.46.0",
+    "prettier": "^3.9.6"
+  }
+}

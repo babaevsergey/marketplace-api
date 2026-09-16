@@ -1,0 +1,4 @@
+node_modules/
+spec.json
+.DS_Store
+.idea/

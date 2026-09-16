@@ -1,0 +1,373 @@
+openapi: 3.0.3
+
+info:
+  title: Marketplace API
+  version: 1.0.0
+  description: API for managing marketplace products and orders.
+  license:
+    name: ISC
+    url: https://spdx.org/licenses/ISC.html
+
+servers:
+  - url: /
+    description: Current server
+
+security: []
+
+tags:
+  - name: Products
+    description: Product catalogue operations
+  - name: Orders
+    description: Order management operations
+
+paths:
+  /products:
+    get:
+      tags:
+        - Products
+      operationId: listProducts
+      summary: List products
+      description: Returns a cursor-paginated list of marketplace products.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of products to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: >
+            Opaque cursor returned by the previous page.
+            Clients must not parse or modify this value.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductPage'
+        '400':
+          description: Invalid pagination parameters or malformed cursor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /orders:
+    get:
+      tags:
+        - Orders
+      operationId: listOrders
+      summary: List orders
+      description: Returns a cursor-paginated list of marketplace orders.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of orders to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: >
+            Opaque cursor returned by the previous page.
+            Clients must not parse or modify this value.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPage'
+        '400':
+          description: Invalid pagination parameters or malformed cursor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+    post:
+      tags:
+        - Orders
+      operationId: createOrder
+      summary: Create an order
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >
+            Repeating a request with the same key and identical body returns
+            the same response without creating another order.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Order created.
+          headers:
+            Idempotency-Replay:
+              description: Present with value true when a stored response is replayed.
+              required: false
+              schema:
+                type: string
+                enum:
+                  - 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          description: Invalid body or missing idempotency key.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Idempotency key already used for another order.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /products/{productId}:
+    get:
+      tags:
+        - Products
+      operationId: getProductById
+      summary: Product details
+      description: Return product details by its unique identifier.
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          description: Unique product identifier.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          description: Product not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /orders/{orderId}:
+    get:
+      tags:
+        - Orders
+      operationId: getOrderById
+      summary: Order details
+      description: Return order details by its unique identifier.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: Unique order identifier.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          description: Order not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+components:
+  schemas:
+    Product:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - price_cents
+        - available
+      properties:
+        id:
+          type: string
+          example: product_123
+        name:
+          type: string
+          minLength: 1
+          example: Keyboards
+        description:
+          type: string
+          nullable: true
+          example: Mechanical and membrane keyboards
+        price_cents:
+          type: integer
+          minimum: 0
+          example: 19999
+        available:
+          type: boolean
+          example: true
+
+    ProductPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        next_cursor:
+          type: string
+          nullable: true
+          description: Opaque cursor for the next page. Null means there are no more pages.
+          example: eyJpZCI6InByb2R1Y3RfMTIzIn0
+
+    Problem:
+      type: object
+      required:
+        - type
+        - title
+        - status
+        - detail
+        - instance
+      properties:
+        type:
+          type: string
+          format: uri
+          example: https://marketplace.dev/problems/invalid-request
+        title:
+          type: string
+          example: Invalid request
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+          example: 400
+        detail:
+          type: string
+          example: Reason of the error
+        instance:
+          type: string
+          example: /products
+
+    CreateOrderItem:
+      type: object
+      additionalProperties: false
+      required:
+        - product_id
+        - quantity
+      properties:
+        product_id:
+          type: string
+          example: product_123
+        quantity:
+          type: integer
+          minimum: 1
+          example: 2
+
+    CreateOrderRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CreateOrderItem'
+
+    OrderLine:
+      type: object
+      additionalProperties: false
+      required:
+        - product_id
+        - quantity
+        - unit_price_cents
+        - line_total_cents
+      properties:
+        product_id:
+          type: string
+          example: product_123
+        quantity:
+          type: integer
+          minimum: 1
+          example: 2
+        unit_price_cents:
+          type: integer
+          minimum: 0
+        line_total_cents:
+          type: integer
+          minimum: 0
+    Order:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - items
+        - total_cents
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          example: order_123
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/OrderLine'
+        total_cents:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum: [created, paid, cancelled]
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-08-24T12:00:00.000Z'
+
+    OrderPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+        next_cursor:
+          type: string
+          nullable: true
+          description: Opaque cursor for the next page. Null means there are no more pages.
+          example: eyJpZCI6InByb2R1Y3RfMTIzIn0

@@ -29,7 +29,9 @@
     "migrate:generate": "bash scripts/with-secrets.sh dev typeorm migration:generate -d dist/data-source.js",
     "migrate": "bash scripts/with-secrets.sh dev typeorm migration:run -d dist/data-source.js",
     "migrate:show": "bash scripts/with-secrets.sh dev typeorm migration:show -d dist/data-source.js",
-    "migrate:revert": "bash scripts/with-secrets.sh dev typeorm migration:revert -d dist/data-source.js"
+    "migrate:revert": "bash scripts/with-secrets.sh dev typeorm migration:revert -d dist/data-source.js",
+    "demo:nplus1": "bash scripts/with-secrets.sh dev node dist/demo-nplus1.js",
+    "report": "bash scripts/with-secrets.sh dev node dist/reports.js"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

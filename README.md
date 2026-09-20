@@ -1,4 +1,3 @@
-````md
 # Marketplace API
 
 An educational marketplace REST API built with NestJS, Express, PostgreSQL, and an
@@ -335,6 +334,158 @@ After indexing, every query must use `Index Scan`, `Index Only Scan`, or
 
 The complete before-and-after execution plans and their explanations are available
 in [`db/OPTIMIZATIONS.md`](db/OPTIMIZATIONS.md).
+
+## TypeORM data layer (HW13)
+
+The TypeORM entities describe `users`, `products`, `orders`, and `order_items`.
+Money is stored as integer cents. `OrderItem` is an explicit join entity because
+the order/product relationship also stores quantity and the price at purchase.
+`synchronize` is explicitly `false`; migrations manage the schema.
+
+This workflow is separate from the raw SQL HW12 workflow above. Do not apply
+`db/schema.sql` or its large seed to the database used by the initial ORM migration.
+Local development checks used the separate database `marketplace_hw13`.
+
+### Deletion rules
+
+| Relationship        | onDelete | Reason                                                   |
+| ------------------- | -------- | -------------------------------------------------------- |
+| Product → owner     | RESTRICT | Do not delete a user while their products still exist.   |
+| Order → user        | RESTRICT | Preserve the buyer referenced by order history.          |
+| OrderItem → product | RESTRICT | Preserve products referenced by purchased line items.    |
+| OrderItem → order   | CASCADE  | A line item belongs to its order and is removed with it. |
+
+### Migration and seed verification
+
+The initial migration was reverted successfully, appeared as `[ ]`, and was then
+reapplied successfully with status `[X]`. The rollback deletes the application
+tables and their data; run it only against a disposable development database.
+
+After restoring the schema, two consecutive seed runs each reported 10 users,
+10 products, 10 orders, and 10 order items. The seed is deterministic and does not
+duplicate these records when rerun.
+
+### N+1 measurements
+
+The demo loads the same graph in both versions: `order → items → product`.
+Measured with one item per seeded order:
+
+| Orders | Before: queries inside loops | After: explicit JOINs |
+| ------ | ---------------------------- | --------------------- |
+| 5      | 11                           | 1                     |
+| 10     | 21                           | 1                     |
+
+The naive version executes one query for the orders, one per order for its items,
+and one per item for its product. The fixed version executes a single SQL query,
+including a subquery that limits orders before joining their items. The query
+count stays constant, although the amount of returned data grows with the input.
+
+A custom TypeORM logger counts actual SQL queries, excluding connection setup.
+The demo asserts that both versions return the same data and that the JOIN
+version executes exactly one query. SQL text is hidden by default for readability.
+
+```bash
+pnpm demo:nplus1
+SHOW_SQL=1 pnpm demo:nplus1
+```
+
+## Grading
+
+Use Node.js 24 and pnpm 10.26.0. This repository commits `pnpm-lock.yaml`; install
+with `pnpm install --frozen-lockfile`. The assignment's literal `npm ci` command
+requires a `package-lock.json`, which this repository does not currently provide.
+
+The following workflow targets a fresh Compose volume, where `marketplace` is
+created by Compose and contains no HW12 or ORM application tables. Do not run it
+against an existing HW12 schema. A new clone alone does not guarantee a new Docker
+volume. Do not delete a volume containing data you need.
+
+Create the local development password file required by the API container. This
+does not overwrite an existing secret:
+
+```bash
+mkdir -p secrets
+if [ ! -f secrets/db_password ]; then
+  printf '%s' 'marketplace_password' > secrets/db_password
+fi
+```
+
+Start the stack and configure the host-side ORM commands with the development
+credentials from `docker-compose.yml`:
+
+```bash
+docker compose up -d --wait
+export DB_HOST=127.0.0.1 DB_PORT=21432 DB_USER=admin DB_PASSWORD=admin-local-only DB_NAME=marketplace
+export SKIP_VAULT=1
+pnpm install --frozen-lockfile
+pnpm exec tsc --noEmit
+pnpm build
+pnpm migrate
+pnpm migrate:show
+```
+
+For the existing isolated local database, use `export DB_NAME=marketplace_hw13`
+instead. The ORM CLI configuration uses `DB_*`; the Nest API still uses its
+separate `DB_URL` and `DB_PASSWORD_FILE` configuration.
+
+Verify rollback and reapplication before loading data. **Reverting the initial
+migration deletes all four application tables and their contents.**
+
+```bash
+pnpm migrate:revert
+pnpm migrate:show
+pnpm migrate
+pnpm migrate:show
+```
+
+The migration should be `[ ]` after rollback and `[X]` after reapplication.
+Run the seed twice, checking counts after each run:
+
+```bash
+pnpm seed
+docker compose exec -T db psql -U admin -d "$DB_NAME" -c "SELECT 'users' AS table_name, count(*) FROM users UNION ALL SELECT 'products', count(*) FROM products UNION ALL SELECT 'orders', count(*) FROM orders UNION ALL SELECT 'order_items', count(*) FROM order_items;"
+pnpm seed
+docker compose exec -T db psql -U admin -d "$DB_NAME" -c "SELECT 'users' AS table_name, count(*) FROM users UNION ALL SELECT 'products', count(*) FROM products UNION ALL SELECT 'orders', count(*) FROM orders UNION ALL SELECT 'order_items', count(*) FROM order_items;"
+pnpm demo:nplus1
+pnpm report
+```
+
+On a clean seeded database, both count checks return 10 for each table. The N+1
+results should match the table above. The report returns seven buyers with paid
+orders, sorted by total spending descending.
+
+All database scripts use `scripts/with-secrets.sh`. Without `SKIP_VAULT=1`, the
+wrapper invokes `infisical run --env=dev`; this requires an installed and
+authenticated Infisical CLI and a configured project. The DataSource reads
+connection settings only from `process.env`. Verification so far used the local
+bypass; the Infisical path and the full fresh-clone workflow still require a
+separate end-to-end check.
+
+## Repository vs QueryBuilder
+
+We use Repository methods such as `find`, `findOneBy`, and `save` for
+straightforward entity reads and writes. We use QueryBuilder when a query needs
+explicit joins, aggregation, grouping, or a custom result shape that cannot be
+expressed with `find()`.
+
+The spending report in `src/reports.ts` joins orders with users, filters paid
+orders, and calculates the order count and total spending per buyer. It uses
+`getRawMany()` because the result contains calculated report fields rather than
+Order entities. Spending is reported in cents.
+
+### Run the report
+
+With the database running, migrations applied, seed data loaded, and database
+environment variables configured:
+
+```bash
+pnpm build
+pnpm report
+```
+
+The report command uses `scripts/with-secrets.sh` to load configuration through
+Infisical. For a local run with `DB_*` variables already exported, set
+`SKIP_VAULT=1` to bypass Infisical.
 
 ## Database connection
 
@@ -742,4 +893,3 @@ The `secrets/db_password` and `.env` files exist only locally and are not commit
 The `/db` endpoint uses PostgreSQL to verify connectivity and database password
 rotation. Products, orders, and idempotency records are still stored in process
 memory and will be migrated to PostgreSQL in a later database assignment.
-````

@@ -13,6 +13,7 @@ async function seed(): Promise<void> {
     const users = Array.from({ length: 10 }, (_, index) => ({
       email: `seed-user-${index + 1}@example.com`,
       name: `Seed User ${index + 1}`,
+      balanceCents: 1_000_000,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     }));
 
@@ -42,6 +43,7 @@ async function seed(): Promise<void> {
         name,
         description: `Description for seed product ${number}`,
         priceCents: number * 1000,
+        stock: 10,
         available: true,
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
       });

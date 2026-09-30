@@ -7,6 +7,7 @@ import { User } from './entities/user.entity.js';
 import { Product } from './entities/product.entity.js';
 import { Order } from './entities/order.entity.js';
 import { OrderItem } from './entities/order-item.entity.js';
+import { CheckoutJob } from './entities/checkout-job.entity.js';
 
 const config = z
   .object({
@@ -27,7 +28,7 @@ export default new DataSource({
   password: config.DB_PASSWORD,
   database: config.DB_NAME,
 
-  entities: [User, Product, Order, OrderItem],
+  entities: [User, Product, Order, OrderItem, CheckoutJob],
 
   migrations: [fileURLToPath(new URL('./migrations/*.js', import.meta.url))],
 

@@ -15,6 +15,7 @@ import { OrderItem } from './order-item.entity.js';
 
 @Entity({ name: 'products' })
 @Check('chk_products_price_cents_non_negative', '"price_cents" >= 0')
+@Check('chk_products_stock_non_negative', '"stock" >= 0')
 @Index('idx_products_lower_name', { synchronize: false })
 export class Product {
   @OneToMany(() => OrderItem, (item) => item.product)
@@ -68,4 +69,10 @@ export class Product {
     type: 'timestamptz',
   })
   createdAt!: Date;
+
+  @Column({
+    type: 'integer',
+    default: 0,
+  })
+  stock!: number;
 }

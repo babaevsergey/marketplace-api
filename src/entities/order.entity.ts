@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 import { User } from './user.entity.js';
 import { OrderItem } from './order-item.entity.js';
+import { CheckoutJob } from './checkout-job.entity.js';
 
 export type OrderStatus = 'created' | 'paid' | 'cancelled';
 
@@ -45,4 +46,7 @@ export class Order {
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
+
+  @OneToMany(() => CheckoutJob, (job) => job.order)
+  jobs!: Relation<CheckoutJob[]>;
 }

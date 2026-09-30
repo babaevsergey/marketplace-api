@@ -389,11 +389,88 @@ pnpm demo:nplus1
 SHOW_SQL=1 pnpm demo:nplus1
 ```
 
+## Concurrency (HW14)
+
+Checkout decrements product stock, debits the buyer balance, inserts the order and
+line item, and enqueues a receipt job in one database transaction. Any failed step
+rolls back every earlier step, so the database cannot contain a charged buyer
+without an order or an order without its queued post-processing task.
+
+### Atomic checkout and race result
+
+Stock is protected with an atomic conditional update:
+
+```sql
+UPDATE products
+SET stock = stock - $1
+WHERE id = $2
+  AND stock >= $1
+RETURNING id, price_cents, stock;
+```
+
+This approach was chosen instead of a separate `SELECT ... FOR UPDATE` because the
+availability check and decrement are expressed as one statement. PostgreSQL locks
+the row while applying it, and zero returned rows means that the product is missing
+or no longer has enough stock. The same pattern protects the buyer balance.
+
+Measured race-demo result for 50 parallel checkout attempts with initial stock 10
+and quantity 1:
+
+| Metric              | Result |
+| ------------------- | -----: |
+| Attempts            |     50 |
+| Successful checkout |     10 |
+| Rejected checkout   |     40 |
+| Final stock         |      0 |
+| Negative stock rows |      0 |
+
+```bash
+pnpm demo:race
+```
+
+### Worker pool with SKIP LOCKED
+
+Three workers process a dedicated batch of 12 jobs. Each worker selects one pending
+job with `FOR UPDATE SKIP LOCKED`, keeps the transaction open during processing,
+and commits the result together with `status = 'done'`. If no unlocked row is
+available, the worker checks whether pending rows still exist before exiting,
+because an empty `SKIP LOCKED` result may mean that other workers currently hold
+all remaining rows.
+
+Measured result:
+
+| Metric              | Result    |
+| ------------------- | --------- |
+| Worker distribution | 4 / 4 / 4 |
+| Processed twice     | 0         |
+| Parallel time       | 922 ms    |
+| Sequential estimate | 2400 ms   |
+
+```bash
+pnpm demo:workers
+```
+
+### Transaction retry
+
+The retry demo runs two concurrent read-modify-write transactions under
+`REPEATABLE READ`. Both first attempts read the same snapshot, PostgreSQL aborts
+one with `40001`, and the wrapper reruns that transaction from its first read.
+The measured run performed one retry and produced the correct final balance:
+`100000 + 100 + 200 = 100300`.
+
+Only `40001` (serialization failure) and `40P01` (deadlock detected) are retried
+because they represent transient concurrency conflicts. Syntax errors, missing
+tables, invalid input, and constraint violations are deterministic failures and
+will not be fixed by retrying the same transaction.
+
+```bash
+pnpm demo:retry
+```
+
 ## Grading
 
-Use Node.js 24 and pnpm 10.26.0. This repository commits `pnpm-lock.yaml`; install
-with `pnpm install --frozen-lockfile`. The assignment's literal `npm ci` command
-requires a `package-lock.json`, which this repository does not currently provide.
+Use Node.js 24. The repository commits both `pnpm-lock.yaml` for development and
+`package-lock.json` for the grader's required `npm ci` command.
 
 The following workflow targets a fresh Compose volume, where `marketplace` is
 created by Compose and contains no HW12 or ORM application tables. Do not run it
@@ -417,14 +494,14 @@ credentials from `docker-compose.yml`:
 docker compose up -d --wait
 export DB_HOST=127.0.0.1 DB_PORT=21432 DB_USER=admin DB_PASSWORD=admin-local-only DB_NAME=marketplace
 export SKIP_VAULT=1
-pnpm install --frozen-lockfile
-pnpm exec tsc --noEmit
-pnpm build
-pnpm migrate
-pnpm migrate:show
+npm ci
+npx tsc --noEmit
+npm run build
+npm run migrate
+npm run migrate:show
 ```
 
-For the existing isolated local database, use `export DB_NAME=marketplace_hw13`
+For the existing isolated local database, use `export DB_NAME=marketplace_hw14`
 instead. The ORM CLI configuration uses `DB_*`; the Nest API still uses its
 separate `DB_URL` and `DB_PASSWORD_FILE` configuration.
 
@@ -448,11 +525,15 @@ pnpm seed
 docker compose exec -T db psql -U admin -d "$DB_NAME" -c "SELECT 'users' AS table_name, count(*) FROM users UNION ALL SELECT 'products', count(*) FROM products UNION ALL SELECT 'orders', count(*) FROM orders UNION ALL SELECT 'order_items', count(*) FROM order_items;"
 pnpm demo:nplus1
 pnpm report
+pnpm demo:race
+pnpm demo:workers
+pnpm demo:retry
 ```
 
 On a clean seeded database, both count checks return 10 for each table. The N+1
 results should match the table above. The report returns seven buyers with paid
-orders, sorted by total spending descending.
+orders, sorted by total spending descending. The three concurrency demos verify
+the race, worker-pool, and retry invariants documented above.
 
 All database scripts use `scripts/with-secrets.sh`. Without `SKIP_VAULT=1`, the
 wrapper invokes `infisical run --env=dev`; this requires an installed and

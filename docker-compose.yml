@@ -9,13 +9,29 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DB_URL: postgresql://app_user@db:5432/marketplace
+      DB_URL: postgresql://app_user@pgbouncer:6432/marketplace
       DB_PASSWORD_FILE: /run/secrets/db_password
     volumes:
       - ./secrets:/run/secrets:ro
     depends_on:
+      pgbouncer:
+        condition: service_healthy
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    ports:
+      - '6432:6432'
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -p 6432 -U app_user -d marketplace']
+      interval: 2s
+      timeout: 2s
+      retries: 15
 
   db:
     image: postgres:17-alpine

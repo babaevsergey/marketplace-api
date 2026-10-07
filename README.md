@@ -467,6 +467,71 @@ will not be fixed by retrying the same transaction.
 pnpm demo:retry
 ```
 
+## Data layer operations (HW15)
+
+### PgBouncer
+
+The application connects to PostgreSQL through PgBouncer:
+
+```text
+API -> pgbouncer:6432 -> db:5432
+```
+
+The PgBouncer configuration is stored in `pgbouncer/pgbouncer.ini`. It uses
+`pool_mode = transaction`, `default_pool_size = 5`, and `max_client_conn = 100`.
+Transaction pooling releases a server connection after every commit or rollback,
+so many application connections can share a small PostgreSQL connection pool.
+
+Transaction mode does not preserve session state between transactions. Code must
+not rely on session-level `SET` values, temporary tables that must survive across
+transactions, session advisory locks, or `LISTEN/NOTIFY` on a stable backend
+connection. Named prepared statements also require compatible client behavior;
+this configuration enables PgBouncer protocol-level prepared statement tracking
+with `max_prepared_statements = 200`.
+
+Verify the application database and the PgBouncer admin console:
+
+```bash
+PGPASSWORD=marketplace_password \
+  psql -h 127.0.0.1 -p 6432 -U app_user -d marketplace -c 'SELECT 1'
+
+PGPASSWORD=pgbouncer-admin-local-only \
+  psql -h 127.0.0.1 -p 6432 -U pgbouncer_admin -d pgbouncer -c 'SHOW POOLS'
+```
+
+### Backups
+
+`scripts/backup.sh` creates a timestamped custom-format PostgreSQL archive in the
+local `backups/` directory. The directory is outside all database containers and
+is excluded from Git. The script first writes a temporary archive, validates its
+table of contents, and only then publishes the final `.dump` file.
+
+The dump runs as `backup_user`, a passwordless read-only role available only over
+the local Unix socket inside the PostgreSQL container. It is not exposed through
+PgBouncer and receives the built-in `pg_read_all_data` role during initialization.
+
+```bash
+bash scripts/with-secrets.sh dev bash scripts/backup.sh
+```
+
+`backup.cron` schedules the same command every night at 02:00. Its example
+deployment path `/opt/marketplace-api` must match the path used on the target host.
+
+### Restore drill
+
+`scripts/restore-drill.sh` selects the latest dump, creates a unique empty Docker
+volume and a temporary PostgreSQL 17 container, restores the archive, and compares
+`count(*)` plus `sum(id)` for the `orders` table before and after the restore. It
+prints `MATCH` only when both values are identical. The temporary container and
+volume are removed on both success and failure, so the drill is repeatable.
+
+```bash
+bash scripts/with-secrets.sh dev bash scripts/restore-drill.sh
+```
+
+The measured drill result and the RTO/RPO values are recorded in
+`RESTORE-DRILL.md`.
+
 ## Grading
 
 Use Node.js 24. The repository commits both `pnpm-lock.yaml` for development and
@@ -486,6 +551,20 @@ if [ ! -f secrets/db_password ]; then
   printf '%s' 'marketplace_password' > secrets/db_password
 fi
 ```
+
+Run the HW15 backup and restore acceptance path with the development credentials
+from `docker-compose.yml`:
+
+```bash
+docker compose up -d --wait
+export DATABASE_URL=postgresql://app_user:marketplace_password@127.0.0.1:6432/marketplace
+export SKIP_VAULT=1
+bash scripts/with-secrets.sh dev bash scripts/backup.sh
+bash scripts/with-secrets.sh dev bash scripts/restore-drill.sh
+```
+
+`DATABASE_URL` is required by both scripts. With `SKIP_VAULT=1`, the wrapper uses
+the exported value directly because the grader has no access to Infisical.
 
 Start the stack and configure the host-side ORM commands with the development
 credentials from `docker-compose.yml`:

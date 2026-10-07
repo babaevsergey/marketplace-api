@@ -8,5 +8,6 @@ dist
 !.env.example
 
 secrets
+backups
 *.md
 spec.json

@@ -1,0 +1,2 @@
+"app_user" "marketplace_password"
+"pgbouncer_admin" "pgbouncer-admin-local-only"
